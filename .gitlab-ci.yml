@@ -1,0 +1,35 @@
+docker-staging:
+    image: docker:latest
+    services:
+        - docker:dind
+    stage: build
+    variables:
+        ENVIROMENT: "stage"
+    before_script:
+        - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    script:
+        - |
+            if [ "$(docker ps -qa -f name=nubibot-api-$ENVIROMENT)" ]; then
+                echo ":: Found container - nubibot-api-$ENVIROMENT"
+                if [ "$(docker ps -q -f name=nubibot-api-$ENVIROMENT)" ]; then
+                    echo ":: Stopping running container - nubibot-api-$ENVIROMENT"
+                    docker stop nubibot-api-$ENVIROMENT;
+                fi
+                echo ":: Removing stopped container - nubibot-api-$ENVIROMENT"
+                docker rm nubibot-api-$ENVIROMENT;
+            fi
+        - docker images --quiet --filter=dangling=true | xargs --no-run-if-empty docker rmi
+        - |
+            if [[ "$CI_COMMIT_BRANCH" == "development" ]]; then
+              tag=""
+              echo "Running on default branch '$CI_COMMIT_BRANCH': tag = 'latest'"
+            else
+              tag=":$CI_COMMIT_REF_SLUG"
+              echo "Running on branch '$CI_COMMIT_BRANCH': tag = $tag"
+            fi
+        - docker build -t "$CI_PROJECT_NAME-$ENVIROMENT${tag}" --build-arg mode=$ENVIROMENT .
+        - docker run --net nubitel --ip 10.0.0.10 --restart always -d --name nubibot-api-$ENVIROMENT -e ENV_MODE=$ENVIROMENT -p 3090:3000 $CI_PROJECT_NAME-$ENVIROMENT${tag}
+    rules:
+        - if: $CI_COMMIT_BRANCH == 'development'
+          exists:
+              - Dockerfile
